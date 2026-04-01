@@ -329,7 +329,7 @@ export default function TerminalUI({ username, room, roomPassword = null }) {
     });
 
     // Handle successful room join
-    socket.on('joinSuccess', ({ room: joinedRoom, isCreator, message }) => {
+    socket.on('joinSuccess', ({ room: joinedRoom, isCreator }) => {
       console.log('Join success received:', joinedRoom, isCreator);
       setShowPasswordPrompt(false);
       setPasswordError('');
