@@ -42,10 +42,11 @@ export default function Room() {
     }
     
     setError('');
+    setUsername(sanitizedUsername);
     setEntered(true);
   };
 
-  const handleKeyPress = (e) => {
+  const handleKeyDown = (e) => {
     if (e.key === 'Enter') {
       handleEnter();
     }
@@ -74,7 +75,7 @@ export default function Room() {
               placeholder="Enter your nickname"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              onKeyPress={handleKeyPress}
+              onKeyDown={handleKeyDown}
               maxLength={20}
               autoFocus
             />

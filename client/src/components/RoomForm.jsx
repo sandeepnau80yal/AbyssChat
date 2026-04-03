@@ -23,7 +23,7 @@ export default function RoomForm() {
     }
   };
 
-  const handleKeyPress = (e) => {
+  const handleKeyDown = (e) => {
     if (e.key === 'Enter') {
       joinRoom();
     }
@@ -56,7 +56,7 @@ export default function RoomForm() {
               placeholder="ENTER ROOM CODE"
               value={code}
               onChange={(e) => setCode(e.target.value)}
-              onKeyPress={handleKeyPress}
+              onKeyDown={handleKeyDown}
               maxLength={10}
             />
             <button 

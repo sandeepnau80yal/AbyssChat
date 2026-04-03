@@ -109,6 +109,7 @@ export default function TerminalUI({ username, room, roomPassword = null }) {
   const [isCreatingRoom, setIsCreatingRoom] = useState(false);
   const messagesEndRef = useRef(null);
   const typingTimeoutRef = useRef(null);
+  const joinTimeoutRef = useRef(null);
   const textareaRef = useRef(null);
   const isMobile = useRef(false);
   const messagesContainerRef = useRef(null);
@@ -138,6 +139,24 @@ export default function TerminalUI({ username, room, roomPassword = null }) {
       return false;
     }
   };
+
+  const clearJoinTimeout = useCallback(() => {
+    if (joinTimeoutRef.current) {
+      clearTimeout(joinTimeoutRef.current);
+      joinTimeoutRef.current = null;
+    }
+  }, []);
+
+  const handleWrongPassword = useCallback(() => {
+    clearJoinTimeout();
+    setShowPasswordPrompt(true);
+    setPasswordError('Incorrect password. Please try again.');
+    setPasswordInput('');
+    setIsJoining(false);
+    setJoinAttempted(false);
+    encryption.clearRoomKey(room);
+    setEncryptionEnabled(false);
+  }, [clearJoinTimeout, room]);
 
   const handlePasswordSubmit = async (e) => {
     e.preventDefault();
@@ -169,30 +188,20 @@ export default function TerminalUI({ username, room, roomPassword = null }) {
       socket.emit("joinRoom", { room, username, password: passwordInput.trim() });
       
       // Set a timeout to prevent infinite joining state
-      setTimeout(() => {
-        if (isJoining) {
-          setPasswordError('Join request timed out. Please try again.');
-          setIsJoining(false);
-          setJoinAttempted(false);
-        }
+      clearJoinTimeout();
+      joinTimeoutRef.current = setTimeout(() => {
+        setPasswordError('Join request timed out. Please try again.');
+        setIsJoining(false);
+        setJoinAttempted(false);
       }, 10000); // 10 second timeout
       
     } catch (error) {
       console.error('Error in handlePasswordSubmit:', error);
+      clearJoinTimeout();
       setPasswordError('An error occurred. Please try again.');
       setIsJoining(false);
       setJoinAttempted(false);
     }
-  };
-
-  const handleWrongPassword = () => {
-    setShowPasswordPrompt(true);
-    setPasswordError('Incorrect password. Please try again.');
-    setPasswordInput('');
-    setIsJoining(false);
-    setJoinAttempted(false);
-    encryption.clearRoomKey(room);
-    setEncryptionEnabled(false);
   };
 
   useEffect(() => {
@@ -232,6 +241,7 @@ export default function TerminalUI({ username, room, roomPassword = null }) {
     });
 
     socket.on("disconnect", () => {
+      clearJoinTimeout();
       setIsConnected(false);
       setIsJoining(false);
       setJoinAttempted(false);
@@ -317,6 +327,7 @@ export default function TerminalUI({ username, room, roomPassword = null }) {
         handleWrongPassword();
       } else {
         // For other errors, also reset joining state
+        clearJoinTimeout();
         setIsJoining(false);
         setJoinAttempted(false);
         setPasswordError(errorMessage);
@@ -331,6 +342,7 @@ export default function TerminalUI({ username, room, roomPassword = null }) {
     // Handle successful room join
     socket.on('joinSuccess', ({ room: joinedRoom, isCreator }) => {
       console.log('Join success received:', joinedRoom, isCreator);
+      clearJoinTimeout();
       setShowPasswordPrompt(false);
       setPasswordError('');
       setIsJoining(false);
@@ -359,9 +371,10 @@ export default function TerminalUI({ username, room, roomPassword = null }) {
       socket.off("error");
       socket.off("roomEncrypted");
       socket.off("joinSuccess");
+      clearJoinTimeout();
       socket.disconnect();
     };
-  }, [room, username]);
+  }, [room, username, handleWrongPassword, clearJoinTimeout]);
 
   const decodeHtmlEntities = (text) => {
     const textarea = document.createElement('textarea');
@@ -415,10 +428,11 @@ export default function TerminalUI({ username, room, roomPassword = null }) {
   };
 
   const formatMessageContent = (msg, idx) => {
-    const text = msg.text;
+    const text = msg.text || '';
 
     if (text.startsWith('```') && text.endsWith('```')) {
       const codeContentEncoded = text.substring(3, text.length - 3);
+      const safeCodeContent = decodeHtmlEntities(codeContentEncoded);
 
       return (
         <div className="relative bg-gray-800 p-2 rounded text-white overflow-x-hidden my-1 w-full min-w-0">
@@ -430,13 +444,13 @@ export default function TerminalUI({ username, room, roomPassword = null }) {
             Copy
           </button>
           <pre className="whitespace-pre-wrap break-all mt-6 text-sm">
-            <code dangerouslySetInnerHTML={{ __html: codeContentEncoded }} />
+            <code>{safeCodeContent}</code>
           </pre>
         </div>
       );
     }
-    const formattedTextWithBreaks = text.replace(/\n/g, '<br />');
-    return <span className="break-all flex-1 min-w-0" dangerouslySetInnerHTML={{ __html: formattedTextWithBreaks }} />;
+    const safeText = decodeHtmlEntities(text);
+    return <span className="break-all whitespace-pre-wrap flex-1 min-w-0">{safeText}</span>;
   };
 
   const handleSend = async (e) => {

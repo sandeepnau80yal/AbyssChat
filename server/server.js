@@ -1,5 +1,6 @@
 import express from 'express';
 import http from 'http';
+import crypto from 'node:crypto';
 import { Server } from 'socket.io';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
@@ -10,7 +11,7 @@ dotenv.config();
 const app = express();
 
 // Constants
-const ALLOWED_ORIGINS = [
+const DEFAULT_ALLOWED_ORIGINS = [
   "http://localhost:3000",
   "http://localhost:3001",
   "http://localhost:5173",
@@ -18,14 +19,29 @@ const ALLOWED_ORIGINS = [
   "https://abyss-chat.vercel.app"
 ];
 
+const ALLOWED_ORIGINS = process.env.CORS_ORIGINS
+  ? process.env.CORS_ORIGINS.split(',').map((origin) => origin.trim()).filter(Boolean)
+  : DEFAULT_ALLOWED_ORIGINS;
+
 const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
 const RATE_LIMIT_MAX_REQUESTS = 100;
 const MAX_MESSAGE_LENGTH = 20000;
 const MAX_ROOM_MESSAGES = 50; // Keep last 50 messages per room
 
+const isAllowedOrigin = (origin) => {
+  if (!origin) return true;
+  return ALLOWED_ORIGINS.includes(origin);
+};
+
 // CORS configuration
 const corsOptions = {
-  origin: ALLOWED_ORIGINS,
+  origin: (origin, callback) => {
+    if (isAllowedOrigin(origin)) {
+      callback(null, true);
+      return;
+    }
+    callback(new Error('Not allowed by CORS'));
+  },
   credentials: true
 };
 
@@ -42,14 +58,21 @@ const server = http.createServer(app);
 
 const io = new Server(server, {
   cors: {
-    ...corsOptions,
+    origin: (origin, callback) => {
+      if (isAllowedOrigin(origin)) {
+        callback(null, true);
+        return;
+      }
+      callback(new Error('Not allowed by CORS'));
+    },
+    credentials: true,
     methods: ["GET", "POST"]
   },
   connectionStateRecovery: {}
 });
 
 // Room management - now includes message history, encryption status, and room passwords
-const rooms = new Map(); // { roomId: { users: Map, messages: Array, isEncrypted: boolean, password: string, creator: string } }
+const rooms = new Map(); // { roomId: { users: Map, messages: Array, isEncrypted: boolean, passwordHash: string, passwordSalt: string, creator: string } }
 const userRooms = new Map();
 
 const userColors = [
@@ -102,7 +125,8 @@ const getRoomData = (room) => {
       users: new Map(), 
       messages: [], 
       isEncrypted: true, // All rooms are encrypted by default now
-      password: null,    // Will be set when room is created
+      passwordHash: null,
+      passwordSalt: null,
       creator: null      // Will be set when room is created
     });
   }
@@ -120,7 +144,10 @@ const setRoomEncrypted = (room) => {
 // NEW: Room password management functions
 const setRoomPassword = (room, password, creator) => {
   const roomData = getRoomData(room);
-  roomData.password = password;
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.scryptSync(password, salt, 64).toString('hex');
+  roomData.passwordSalt = salt;
+  roomData.passwordHash = hash;
   roomData.creator = creator;
   roomData.isEncrypted = true; // Ensure encryption is enabled
 };
@@ -128,12 +155,14 @@ const setRoomPassword = (room, password, creator) => {
 const validateRoomPassword = (room, password) => {
   const roomData = rooms.get(room);
   if (!roomData) return false;
-  return roomData.password === password;
-};
+  if (!roomData.passwordSalt || !roomData.passwordHash) return false;
 
-const isRoomPasswordProtected = (room) => {
-  const roomData = rooms.get(room);
-  return roomData && roomData.password !== null;
+  const providedHash = crypto.scryptSync(password || '', roomData.passwordSalt, 64).toString('hex');
+  const expectedHashBuffer = Buffer.from(roomData.passwordHash, 'hex');
+  const providedHashBuffer = Buffer.from(providedHash, 'hex');
+
+  if (expectedHashBuffer.length !== providedHashBuffer.length) return false;
+  return crypto.timingSafeEqual(expectedHashBuffer, providedHashBuffer);
 };
 
 const addMessageToRoom = (room, message) => {
