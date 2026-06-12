@@ -16,7 +16,7 @@ const DEFAULT_ALLOWED_ORIGINS = [
   "http://localhost:3001",
   "http://localhost:5173",
   "http://localhost:5174",
-  "https://abyss.nau80yal.in/"
+  "https://abyss.nau80yal.in"
 ];
 
 const ALLOWED_ORIGINS = process.env.CORS_ORIGINS
